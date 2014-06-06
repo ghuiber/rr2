@@ -1,0 +1,62 @@
+Reproducible Research, Peer Assessment 2
+========================================
+
+## Questions
+
+1. Across the United States, which types of events (as indicated in the EVTYPE variable) are most harmful with respect to population health?
+2. Across the United States, which types of events have the greatest economic consequences?
+
+## Data
+
+```{r download}
+require(data.table)
+setInternet2(TRUE)
+if(!file.exists('StormData.RData')) {
+    here <- tempdir()
+    data <- paste(here,'StormData.csv.bz2',sep='/')
+    download.file('https://d396qusza40orc.cloudfront.net/repdata/data/StormData.csv.bz2',data)
+    data <- data.table(read.csv(data))
+    save(data,file='StormData.RData')
+} else {
+    load('StormData.RData')
+}
+```
+
+## Some summary statistics
+
+```{r peoplesum}
+myn <- 10 # Top myn causes of injuries, fatalities. Set to suit.
+peoplesum <- data[,list(fatalities=sum(FATALITIES), 
+                        injuries=sum(INJURIES)),
+                  by=list(EVTYPE)]
+```
+
+1. Top `r myn` types of weather events that kill most people:
+    ```{r fatalities}
+    ftop <- head(peoplesum[order(-fatalities),],n=myn)
+    ftop
+    ```
+    
+2. Top `r myn` types of weather events that injure most people:
+    ```{r injuries}
+    itop <- head(peoplesum[order(-injuries),],n=myn)
+    itop
+    ```
+
+3. Overlap between the two: 
+    ```{r peopledamage}
+    fsum <- as.character(ftop[,EVTYPE])
+    psum <- as.character(itop[,EVTYPE])
+    olap <- sort(intersect(fsum,psum))
+    ftopnum <- sum(ftop[,injuries][ftop[,EVTYPE] %in% olap])
+    itopnum <- sum(itop[,fatalities][itop[,EVTYPE] %in% olap])
+    ftopshare <- ftopnum/sum(ftop[,injuries])
+    itopshare <- itopnum/sum(itop[,fatalities])
+    fallshare <- ftopnum/sum(peoplesum[,injuries])
+    iallshare <- itopnum/sum(peoplesum[,fatalities])
+    t(t(olap))
+    ```
+
+The `r length(olap)` types of events that show up in both top `r myn` lists, shown above, are responsible for `r round(100*ftopshare,0)`% of fatalities and `r round(100*itopshare,0)`% of injuries in each top `r myn` list. This amounts to `r round(100*iallshare,0)`% of all recorded injuries and `r round(100*fallshare,0)`% of all recorded fatalities in the StormData file.
+
+
