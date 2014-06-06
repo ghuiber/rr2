@@ -23,22 +23,26 @@ if(!file.exists('StormData.RData')) {
     here <- tempdir()
     data <- paste(here,'StormData.csv.bz2',sep='/')
     download.file('https://d396qusza40orc.cloudfront.net/repdata/data/StormData.csv.bz2',data)
-    data <- data.table(read.csv(data))
+    data <- data.table(read.csv(data, stringsAsFactors=FALSE))
     save(data,file='StormData.RData')
 } else {
     load('StormData.RData')
 }
 ```
 
-## Some summary statistics
+## Ranking of event types by injuries and fatalities
 
 
 ```r
-myn <- 10
+myn <- 10 # Top myn causes of injuries, fatalities. Set to suit.
 peoplesum <- data[,list(fatalities=sum(FATALITIES), 
                         injuries=sum(INJURIES)),
                   by=list(EVTYPE)]
+data$BGN_DATE <- as.Date(sapply(data$BGN_DATE,
+                                function(x) {unlist(strsplit(x," "))[1]}),"%m/%d/%Y")
 ```
+
+There are 985 event types in the StormData data set, tracked over 61 years, between 1950 and 2011. They were responsible for 15,145 fatalities and 140,528 injuries.
 
 1. Top 10 types of weather events that kill most people:
     
@@ -88,10 +92,12 @@ peoplesum <- data[,list(fatalities=sum(FATALITIES),
     fsum <- as.character(ftop[,EVTYPE])
     psum <- as.character(itop[,EVTYPE])
     olap <- sort(intersect(fsum,psum))
-    ftopshare <- sum(ftop[,injuries][ftop[,EVTYPE] %in% olap])/sum(ftop[,injuries])
-    itopshare <- sum(itop[,fatalities][itop[,EVTYPE] %in% olap])/sum(itop[,fatalities])
-    fallshare <- sum(ftop[,injuries][ftop[,EVTYPE] %in% olap])/sum(peoplesum[,injuries])
-    iallshare <- sum(itop[,fatalities][itop[,EVTYPE] %in% olap])/sum(peoplesum[,fatalities])
+    ftopnum <- sum(ftop[,injuries][ftop[,EVTYPE] %in% olap])
+    itopnum <- sum(itop[,fatalities][itop[,EVTYPE] %in% olap])
+    ftopshare <- ftopnum/sum(ftop[,injuries])
+    itopshare <- itopnum/sum(itop[,fatalities])
+    fallshare <- ftopnum/sum(peoplesum[,injuries])
+    iallshare <- itopnum/sum(peoplesum[,fatalities])
     t(t(olap))
     ```
     
@@ -106,6 +112,6 @@ peoplesum <- data[,list(fatalities=sum(FATALITIES),
     ## [7,] "TSTM WIND"
     ```
 
-The 7 types of events that show up in both top 10 lists are responsible for 99% of fatalities and 98% of injuries in each top 10 list. This amounts to 74.22% of all recorded injuries and 85.91% of all recorded fatalities in the StormData file.
+The 7 types of events that show up in both top 10 lists, shown above, are responsible for 99% of fatalities and 98% of injuries in each top 10 list. This amounts to 74% of all recorded injuries and 86% of all recorded fatalities in the StormData file.
 
 

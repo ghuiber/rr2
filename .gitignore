@@ -4,6 +4,7 @@
 cache/
 *.txt
 *.pdf
+*.csv*
 
 #################
 ## Eclipse

@@ -201,20 +201,24 @@ if(!file.exists(&#39;StormData.RData&#39;)) {
     here &lt;- tempdir()
     data &lt;- paste(here,&#39;StormData.csv.bz2&#39;,sep=&#39;/&#39;)
     download.file(&#39;https://d396qusza40orc.cloudfront.net/repdata/data/StormData.csv.bz2&#39;,data)
-    data &lt;- data.table(read.csv(data))
+    data &lt;- data.table(read.csv(data, stringsAsFactors=FALSE))
     save(data,file=&#39;StormData.RData&#39;)
 } else {
     load(&#39;StormData.RData&#39;)
 }
 </code></pre>
 
-<h2>Some summary statistics</h2>
+<h2>Ranking of event types by injuries and fatalities</h2>
 
-<pre><code class="r">myn &lt;- 10
+<pre><code class="r">myn &lt;- 10 # Top myn causes of injuries, fatalities. Set to suit.
 peoplesum &lt;- data[,list(fatalities=sum(FATALITIES), 
                         injuries=sum(INJURIES)),
                   by=list(EVTYPE)]
+data$BGN_DATE &lt;- as.Date(sapply(data$BGN_DATE,
+                                function(x) {unlist(strsplit(x,&quot; &quot;))[1]}),&quot;%m/%d/%Y&quot;)
 </code></pre>
+
+<p>There are 985 event types in the StormData data set, tracked over 61 years, between 1950 and 2011. They were responsible for 15,145 fatalities and 140,528 injuries.</p>
 
 <ol>
 <li><p>Top 10 types of weather events that kill most people:</p>
@@ -258,10 +262,12 @@ itop
 <pre><code class="r">fsum &lt;- as.character(ftop[,EVTYPE])
 psum &lt;- as.character(itop[,EVTYPE])
 olap &lt;- sort(intersect(fsum,psum))
-ftopshare &lt;- sum(ftop[,injuries][ftop[,EVTYPE] %in% olap])/sum(ftop[,injuries])
-itopshare &lt;- sum(itop[,fatalities][itop[,EVTYPE] %in% olap])/sum(itop[,fatalities])
-fallshare &lt;- sum(ftop[,injuries][ftop[,EVTYPE] %in% olap])/sum(peoplesum[,injuries])
-iallshare &lt;- sum(itop[,fatalities][itop[,EVTYPE] %in% olap])/sum(peoplesum[,fatalities])
+ftopnum &lt;- sum(ftop[,injuries][ftop[,EVTYPE] %in% olap])
+itopnum &lt;- sum(itop[,fatalities][itop[,EVTYPE] %in% olap])
+ftopshare &lt;- ftopnum/sum(ftop[,injuries])
+itopshare &lt;- itopnum/sum(itop[,fatalities])
+fallshare &lt;- ftopnum/sum(peoplesum[,injuries])
+iallshare &lt;- itopnum/sum(peoplesum[,fatalities])
 t(t(olap))
 </code></pre>
 
@@ -276,7 +282,7 @@ t(t(olap))
 </code></pre></li>
 </ol>
 
-<p>The 7 types of events that show up in both top 10 lists are responsible for 99% of fatalities and 98% of injuries in each top 10 list. This amounts to 74.22% of all recorded injuries and 85.91% of all recorded fatalities in the StormData file.</p>
+<p>The 7 types of events that show up in both top 10 lists, shown above, are responsible for 99% of fatalities and 98% of injuries in each top 10 list. This amounts to 74% of all recorded injuries and 86% of all recorded fatalities in the StormData file.</p>
 
 </body>
 

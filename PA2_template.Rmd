@@ -15,21 +15,25 @@ if(!file.exists('StormData.RData')) {
     here <- tempdir()
     data <- paste(here,'StormData.csv.bz2',sep='/')
     download.file('https://d396qusza40orc.cloudfront.net/repdata/data/StormData.csv.bz2',data)
-    data <- data.table(read.csv(data))
+    data <- data.table(read.csv(data, stringsAsFactors=FALSE))
     save(data,file='StormData.RData')
 } else {
     load('StormData.RData')
 }
 ```
 
-## Some summary statistics
+## Ranking of event types by injuries and fatalities
 
 ```{r peoplesum}
 myn <- 10 # Top myn causes of injuries, fatalities. Set to suit.
 peoplesum <- data[,list(fatalities=sum(FATALITIES), 
                         injuries=sum(INJURIES)),
                   by=list(EVTYPE)]
+data$BGN_DATE <- as.Date(sapply(data$BGN_DATE,
+                                function(x) {unlist(strsplit(x," "))[1]}),"%m/%d/%Y")
 ```
+
+There are `r formatC(length(unique(peoplesum$EVTYPE)),big.mark=",")` event types in the StormData data set, tracked over `r max(year(data$BGN_DATE))-min(year(data$BGN_DATE))` years, between `r min(year(data$BGN_DATE))` and `r max(year(data$BGN_DATE))`. They were responsible for `r prettyNum(sum(peoplesum$fatalities),big.mark=",")` fatalities and `r prettyNum(sum(peoplesum$injuries),big.mark=",")` injuries.
 
 1. Top `r myn` types of weather events that kill most people:
     ```{r fatalities}
