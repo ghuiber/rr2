@@ -190,13 +190,18 @@ hljs.initHighlightingOnLoad();
 
 <h2>Data</h2>
 
-<pre><code class="r">require(data.table)
+<pre><code class="r">require(data.table) # for faster summary stats
 </code></pre>
 
 <pre><code>## Loading required package: data.table
 </code></pre>
 
-<pre><code class="r">setInternet2(TRUE)
+<pre><code class="r">setInternet2(TRUE)  # for https downloads.
+# Download is slow, and read.csv() from large .bz2 file is even slower.
+# So, to speed things up, do it only once and save an .RData version.
+# I know this is not 100% OK (Peng exhorts you to save no intermediary
+# data files) but if .RData is not saved to GitHub, all is well: customer
+# who forks the code will have no choice but do download and read.csv().
 if(!file.exists(&#39;StormData.RData&#39;)) {
     here &lt;- tempdir()
     data &lt;- paste(here,&#39;StormData.csv.bz2&#39;,sep=&#39;/&#39;)
@@ -206,83 +211,182 @@ if(!file.exists(&#39;StormData.RData&#39;)) {
 } else {
     load(&#39;StormData.RData&#39;)
 }
+# Transform the date of interest from string to true date
+data$BGN_DATE &lt;- as.Date(sapply(data$BGN_DATE,
+                                function(x) {
+                                    unlist(strsplit(x,&quot; &quot;))[1]
+                                }),&quot;%m/%d/%Y&quot;)
 </code></pre>
 
 <h2>Ranking of event types by injuries and fatalities</h2>
 
 <pre><code class="r">myn &lt;- 10 # Top myn causes of injuries, fatalities. Set to suit.
-peoplesum &lt;- data[,list(fatalities=sum(FATALITIES), 
-                        injuries=sum(INJURIES)),
-                  by=list(EVTYPE)]
-data$BGN_DATE &lt;- as.Date(sapply(data$BGN_DATE,
-                                function(x) {unlist(strsplit(x,&quot; &quot;))[1]}),&quot;%m/%d/%Y&quot;)
+myy &lt;- 10 # Most recent years of data to consider separately. Set to suit.
+
+oldest &lt;- min(year(data$BGN_DATE))
+newest &lt;- max(year(data$BGN_DATE))
+oldesty &lt;- subset(data,year(BGN_DATE) %in% c(oldest:oldest+(myy-1)))
+newesty &lt;- subset(data,year(BGN_DATE) %in% c(newest-(myy-1):newest))
+
+# summarize data: add losses of interest by event type.
+# returns a data table.
+getLossSum &lt;- function(dt) {
+    out &lt;- dt[,list(fatalities=sum(FATALITIES), 
+                    injuries=sum(INJURIES),
+                    cropdmg=sum(CROPDMG),
+                    propdmg=sum(PROPDMG)),
+              by=list(EVTYPE)]
+    out[,econdmg:=cropdmg+propdmg]
+    return(subset(out,select=-c(cropdmg,propdmg)))
+}
+
+# report damage. 2 arguments:
+# dt -- a data table summarized by getLossSum()
+# thisn -- how many observations in the head() call
+# returns a list with as many elements as there are
+# metrics of interest. In this case, 3:
+# fatalities, injuries, econdmg.
+# each element is a data table.
+getLoss &lt;- function(dt,thisn=myn) {
+    myx &lt;- setdiff(names(dt),&#39;EVTYPE&#39;)
+    getTopset &lt;- function(x) {
+        return(head(subset(dt,select=c(EVTYPE,get(x)))[order(-get(x)),],n=thisn))
+    }
+    out &lt;- lapply(myx,FUN=getTopset)
+    names(out) &lt;- myx
+    return(out)
+}
+
+# get share of event types listed
+# in string vector e for loss x
+# in data table dt. returns a number 
+# with a value between 0 and 1.
+getShareOfLoss &lt;- function(e,x,dt) {
+    num &lt;- sum(dt[,get(x)][dt[,EVTYPE] %in% e],na.rm=TRUE)
+    den &lt;- sum(dt[,get(x)],na.rm=TRUE)
+    return(num/den)
+}
+
+# get data frame of top losses of all times and
+# from newest myn years, from lists produced
+# by getLoss()
+getLossTable &lt;- function(x,all,new) {
+    out &lt;- merge(all[[x]],new[[x]],by=c(&#39;EVTYPE&#39;),all=TRUE)
+    oldnames &lt;- c(&#39;EVTYPE&#39;,paste(x,&#39;x&#39;,sep=&#39;.&#39;),paste(x,&#39;y&#39;,sep=&#39;.&#39;))
+    newnames &lt;- c(&#39;EVTYPE&#39;,paste(&#39;all&#39;,x,sep=&#39;.&#39;),paste(&#39;last&#39;,myn,&#39;years&#39;,sep=&#39;.&#39;))
+    setnames(out,oldnames,newnames)
+    return(out[order(-get(paste(&#39;all&#39;,x,sep=&#39;.&#39;))),])
+}
+
+# Get summarized data tables.
+# This is the analytical data.
+peoplesum &lt;- getLossSum(data)
+peoplenew &lt;- getLossSum(newesty)
 </code></pre>
 
-<p>There are 985 event types in the StormData data set, tracked over 61 years, between 1950 and 2011. They were responsible for 15,145 fatalities and 140,528 injuries.</p>
+<p>There are 985 event types in the StormData data set, tracked over 61 years, between 1950 and 2011. These events were responsible for 15,145 fatalities and 140,528 injuries. </p>
+
+<p>Over time, the number of event types tracked grew from 3 over the first 10 years data to 973 over the last 10.</p>
+
+<pre><code class="r">allLoss &lt;- getLoss(peoplesum)
+newLoss &lt;- getLoss(peoplenew)
+fatalities &lt;- getLossTable(&#39;fatalities&#39;,allLoss,newLoss)
+injuries   &lt;- getLossTable(&#39;injuries&#39;,allLoss,newLoss)
+overlap    &lt;- intersect(fatalities$EVTYPE,injuries$EVTYPE)
+econdmg    &lt;- getLossTable(&#39;econdmg&#39;,allLoss,newLoss)
+</code></pre>
 
 <ol>
 <li><p>Top 10 types of weather events that kill most people:</p>
 
-<pre><code class="r">ftop &lt;- head(peoplesum[order(-fatalities),],n=myn)
-ftop
+<pre><code class="r">fatalities
 </code></pre>
 
-<pre><code>##             EVTYPE fatalities injuries
-##  1:        TORNADO       5633    91346
-##  2: EXCESSIVE HEAT       1903     6525
-##  3:    FLASH FLOOD        978     1777
-##  4:           HEAT        937     2100
-##  5:      LIGHTNING        816     5230
-##  6:      TSTM WIND        504     6957
-##  7:          FLOOD        470     6789
-##  8:    RIP CURRENT        368      232
-##  9:      HIGH WIND        248     1137
-## 10:      AVALANCHE        224      170
+<pre><code>##             EVTYPE all.fatalities last.10.years
+##  1:        TORNADO           5633          4576
+##  2: EXCESSIVE HEAT           1903          1379
+##  3:    FLASH FLOOD            978           471
+##  4:           HEAT            937           708
+##  5:      LIGHTNING            816           497
+##  6:      TSTM WIND            504           443
+##  7:          FLOOD            470           233
+##  8:    RIP CURRENT            368            NA
+##  9:      HIGH WIND            248           170
+## 10:      AVALANCHE            224            NA
+## 11:      HEAT WAVE             NA           172
+## 12:   RIP CURRENTS             NA           203
 </code></pre></li>
 <li><p>Top 10 types of weather events that injure most people:</p>
 
-<pre><code class="r">itop &lt;- head(peoplesum[order(-injuries),],n=myn)
-itop
+<pre><code class="r">injuries
 </code></pre>
 
-<pre><code>##                EVTYPE fatalities injuries
-##  1:           TORNADO       5633    91346
-##  2:         TSTM WIND        504     6957
-##  3:             FLOOD        470     6789
-##  4:    EXCESSIVE HEAT       1903     6525
-##  5:         LIGHTNING        816     5230
-##  6:              HEAT        937     2100
-##  7:         ICE STORM         89     1975
-##  8:       FLASH FLOOD        978     1777
-##  9: THUNDERSTORM WIND        133     1488
-## 10:              HAIL         15     1361
+<pre><code>##                 EVTYPE all.injuries last.10.years
+##  1:            TORNADO        91346         78726
+##  2:          TSTM WIND         6957          6073
+##  3:              FLOOD         6789          6493
+##  4:     EXCESSIVE HEAT         6525          4106
+##  5:          LIGHTNING         5230          3236
+##  6:               HEAT         2100            NA
+##  7:          ICE STORM         1975          1918
+##  8:        FLASH FLOOD         1777          1331
+##  9:  THUNDERSTORM WIND         1488            NA
+## 10:               HAIL         1361          1030
+## 11: THUNDERSTORM WINDS           NA           908
+## 12:       WINTER STORM           NA          1176
 </code></pre></li>
 <li><p>Overlap between the two: </p>
 
-<pre><code class="r">fsum &lt;- as.character(ftop[,EVTYPE])
-psum &lt;- as.character(itop[,EVTYPE])
-olap &lt;- sort(intersect(fsum,psum))
-ftopnum &lt;- sum(ftop[,injuries][ftop[,EVTYPE] %in% olap])
-itopnum &lt;- sum(itop[,fatalities][itop[,EVTYPE] %in% olap])
-ftopshare &lt;- ftopnum/sum(ftop[,injuries])
-itopshare &lt;- itopnum/sum(itop[,fatalities])
-fallshare &lt;- ftopnum/sum(peoplesum[,injuries])
-iallshare &lt;- itopnum/sum(peoplesum[,fatalities])
-t(t(olap))
+<pre><code class="r">t(t(overlap))
 </code></pre>
 
 <pre><code>##      [,1]            
-## [1,] &quot;EXCESSIVE HEAT&quot;
-## [2,] &quot;FLASH FLOOD&quot;   
-## [3,] &quot;FLOOD&quot;         
+## [1,] &quot;TORNADO&quot;       
+## [2,] &quot;EXCESSIVE HEAT&quot;
+## [3,] &quot;FLASH FLOOD&quot;   
 ## [4,] &quot;HEAT&quot;          
 ## [5,] &quot;LIGHTNING&quot;     
-## [6,] &quot;TORNADO&quot;       
-## [7,] &quot;TSTM WIND&quot;
+## [6,] &quot;TSTM WIND&quot;     
+## [7,] &quot;FLOOD&quot;
 </code></pre></li>
 </ol>
 
-<p>The 7 types of events that show up in both top 10 lists, shown above, are responsible for 99% of fatalities and 98% of injuries in each top 10 list. This amounts to 74% of all recorded injuries and 86% of all recorded fatalities in the StormData file.</p>
+<p>The 7 types of events that show up in both top 10 lists, shown above, are responsible for 93% of fatalities and 96% of injuries in each top 10 list. This amounts to 74% of all recorded fatalities and 86% of all recorded injuries in the StormData file. </p>
+
+<p>The list of top 10 most harmful types of events contains both &ldquo;HEAT&rdquo; and &ldquo;EXCESSIVE HEAT&rdquo;. They are explained in sections 7.20 and 7.12 respectively of the <a href="https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf">Storm Data documentation</a>, so there must be some good reason why they are treated separately.</p>
+
+<p>The rankings above include a column for only the last 10 years of data because it might be of interest to see how they change over time. If they do not, then maybe that is an indication that it is hopeless to try and tackle the worst kinds of event types, and disaster preparedness and relief resources might be better used on less severe but more tractable ones. Then again, if the rankings stay the same but the relative share of the damage done by the worst 10 types of events is decreasing, that is an indication of progress.</p>
+
+<p>The 7 types of events that show up in both top 10 lists above are responsible for 94% of fatalities and 95% of injuries in each top 10 list for data collected over the last 10 years only. This amounts to 78% of all recorded fatalities and 88% of all recorded injuries in the last 10 years of the StormData file.</p>
+
+<p>So, the worst events for human health are about the same over time, and their share of the total damage does not seem to change much. The counts for the past 10 years seem to be disproportionately high. That may be accounted for either by population growth (more people in harm&#39;s way, so more people truly harmed) or improved data collection (fewer of the people truly harmed are missed by the counts).</p>
+
+<p>Any way you count them, tornadoes are the top threat to human health among all natural events according to StormData, by a wide margin.</p>
+
+<h2>Ranking of event types by economic damage</h2>
+
+<p>I added crop and property damage together into a single measure of economic damage, because they are both dollar values rounded to thousands. By this measure, the top 10 most costly types of weather events are (in thousands of dollars):</p>
+
+<pre><code class="r">overlap &lt;- econdmg$EVTYPE
+econdmg
+</code></pre>
+
+<pre><code>##                 EVTYPE all.econdmg last.10.years
+##  1:            TORNADO     3312277       2503623
+##  2:        FLASH FLOOD     1599325        659452
+##  3:          TSTM WIND     1445168        966963
+##  4:               HAIL     1268290        649867
+##  5:              FLOOD     1067976        364635
+##  6:  THUNDERSTORM WIND      943636            NA
+##  7:          LIGHTNING      606932        299102
+##  8: THUNDERSTORM WINDS      464978        464978
+##  9:          HIGH WIND      342015        142096
+## 10:       WINTER STORM      134700            NA
+## 11:         HEAVY SNOW          NA         81810
+## 12:         HIGH WINDS          NA         57385
+</code></pre>
+
+<p>The types of events ranked above are responsible for 93% of all recorded economic damage in the StormData file. That share is 93% if measured over the last 10 years only. Again the shares are similar because the last 10 years&#39; worth of estimates are disproportionately large, reflecting either higher-value property in harm&#39;s way (accounted for by both inflation and true wealth creation) or better data collection. Tornadoes top the list again.</p>
 
 </body>
 

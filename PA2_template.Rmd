@@ -9,8 +9,13 @@ Reproducible Research, Peer Assessment 2
 ## Data
 
 ```{r download}
-require(data.table)
-setInternet2(TRUE)
+require(data.table) # for faster summary stats
+setInternet2(TRUE)  # for https downloads.
+# Download is slow, and read.csv() from large .bz2 file is even slower.
+# So, to speed things up, do it only once and save an .RData version.
+# I know this is not 100% OK (Peng exhorts you to save no intermediary
+# data files) but if .RData is not saved to GitHub, all is well: customer
+# who forks the code will have no choice but do download and read.csv().
 if(!file.exists('StormData.RData')) {
     here <- tempdir()
     data <- paste(here,'StormData.csv.bz2',sep='/')
@@ -20,47 +25,126 @@ if(!file.exists('StormData.RData')) {
 } else {
     load('StormData.RData')
 }
+# Transform the date of interest from string to true date
+data$BGN_DATE <- as.Date(sapply(data$BGN_DATE,
+                                function(x) {
+                                    unlist(strsplit(x," "))[1]
+                                }),"%m/%d/%Y")
 ```
 
 ## Ranking of event types by injuries and fatalities
 
 ```{r peoplesum}
 myn <- 10 # Top myn causes of injuries, fatalities. Set to suit.
-peoplesum <- data[,list(fatalities=sum(FATALITIES), 
-                        injuries=sum(INJURIES)),
-                  by=list(EVTYPE)]
-data$BGN_DATE <- as.Date(sapply(data$BGN_DATE,
-                                function(x) {unlist(strsplit(x," "))[1]}),"%m/%d/%Y")
+myy <- 10 # Most recent years of data to consider separately. Set to suit.
+
+oldest <- min(year(data$BGN_DATE))
+newest <- max(year(data$BGN_DATE))
+oldesty <- subset(data,year(BGN_DATE) %in% c(oldest:oldest+(myy-1)))
+newesty <- subset(data,year(BGN_DATE) %in% c(newest-(myy-1):newest))
+
+# summarize data: add losses of interest by event type.
+# returns a data table.
+getLossSum <- function(dt) {
+    out <- dt[,list(fatalities=sum(FATALITIES), 
+                    injuries=sum(INJURIES),
+                    cropdmg=sum(CROPDMG),
+                    propdmg=sum(PROPDMG)),
+              by=list(EVTYPE)]
+    out[,econdmg:=cropdmg+propdmg]
+    return(subset(out,select=-c(cropdmg,propdmg)))
+}
+
+# report damage. 2 arguments:
+# dt -- a data table summarized by getLossSum()
+# thisn -- how many observations in the head() call
+# returns a list with as many elements as there are
+# metrics of interest. In this case, 3:
+# fatalities, injuries, econdmg.
+# each element is a data table.
+getLoss <- function(dt,thisn=myn) {
+    myx <- setdiff(names(dt),'EVTYPE')
+    getTopset <- function(x) {
+        return(head(subset(dt,select=c(EVTYPE,get(x)))[order(-get(x)),],n=thisn))
+    }
+    out <- lapply(myx,FUN=getTopset)
+    names(out) <- myx
+    return(out)
+}
+
+# get share of event types listed
+# in string vector e for loss x
+# in data table dt. returns a number 
+# with a value between 0 and 1.
+getShareOfLoss <- function(e,x,dt) {
+    num <- sum(dt[,get(x)][dt[,EVTYPE] %in% e],na.rm=TRUE)
+    den <- sum(dt[,get(x)],na.rm=TRUE)
+    return(num/den)
+}
+
+# get data frame of top losses of all times and
+# from newest myn years, from lists produced
+# by getLoss()
+getLossTable <- function(x,all,new) {
+    out <- merge(all[[x]],new[[x]],by=c('EVTYPE'),all=TRUE)
+    oldnames <- c('EVTYPE',paste(x,'x',sep='.'),paste(x,'y',sep='.'))
+    newnames <- c('EVTYPE',paste('all',x,sep='.'),paste('last',myn,'years',sep='.'))
+    setnames(out,oldnames,newnames)
+    return(out[order(-get(paste('all',x,sep='.'))),])
+}
+
+# Get summarized data tables.
+# This is the analytical data.
+peoplesum <- getLossSum(data)
+peoplenew <- getLossSum(newesty)
 ```
 
-There are `r formatC(length(unique(peoplesum$EVTYPE)),big.mark=",")` event types in the StormData data set, tracked over `r max(year(data$BGN_DATE))-min(year(data$BGN_DATE))` years, between `r min(year(data$BGN_DATE))` and `r max(year(data$BGN_DATE))`. They were responsible for `r prettyNum(sum(peoplesum$fatalities),big.mark=",")` fatalities and `r prettyNum(sum(peoplesum$injuries),big.mark=",")` injuries.
+There are `r formatC(length(unique(peoplesum$EVTYPE)),big.mark=",")` event types in the StormData data set, tracked over `r newest-oldest` years, between `r oldest` and `r newest`. These events were responsible for `r prettyNum(sum(peoplesum$fatalities),big.mark=",")` fatalities and `r prettyNum(sum(peoplesum$injuries),big.mark=",")` injuries. 
+
+Over time, the number of event types tracked grew from `r length(unique(oldesty$EVTYPE))` over the first `r myy` years data to `r length(unique(newesty$EVTYPE))` over the last `r myy`.
+
+```{r topdamage}
+allLoss <- getLoss(peoplesum)
+newLoss <- getLoss(peoplenew)
+fatalities <- getLossTable('fatalities',allLoss,newLoss)
+injuries   <- getLossTable('injuries',allLoss,newLoss)
+overlap    <- intersect(fatalities$EVTYPE,injuries$EVTYPE)
+econdmg    <- getLossTable('econdmg',allLoss,newLoss)
+```
 
 1. Top `r myn` types of weather events that kill most people:
     ```{r fatalities}
-    ftop <- head(peoplesum[order(-fatalities),],n=myn)
-    ftop
+    fatalities
     ```
     
 2. Top `r myn` types of weather events that injure most people:
     ```{r injuries}
-    itop <- head(peoplesum[order(-injuries),],n=myn)
-    itop
+    injuries
     ```
 
 3. Overlap between the two: 
     ```{r peopledamage}
-    fsum <- as.character(ftop[,EVTYPE])
-    psum <- as.character(itop[,EVTYPE])
-    olap <- sort(intersect(fsum,psum))
-    ftopnum <- sum(ftop[,injuries][ftop[,EVTYPE] %in% olap])
-    itopnum <- sum(itop[,fatalities][itop[,EVTYPE] %in% olap])
-    ftopshare <- ftopnum/sum(ftop[,injuries])
-    itopshare <- itopnum/sum(itop[,fatalities])
-    fallshare <- ftopnum/sum(peoplesum[,injuries])
-    iallshare <- itopnum/sum(peoplesum[,fatalities])
-    t(t(olap))
+    t(t(overlap))
     ```
 
-The `r length(olap)` types of events that show up in both top `r myn` lists, shown above, are responsible for `r round(100*ftopshare,0)`% of fatalities and `r round(100*itopshare,0)`% of injuries in each top `r myn` list. This amounts to `r round(100*iallshare,0)`% of all recorded injuries and `r round(100*fallshare,0)`% of all recorded fatalities in the StormData file.
+The `r length(overlap)` types of events that show up in both top `r myn` lists, shown above, are responsible for `r round(100*getShareOfLoss(overlap,'fatalities',allLoss$fatalities),0)`% of fatalities and `r round(100*getShareOfLoss(overlap,'injuries',allLoss$injuries),0)`% of injuries in each top `r myn` list. This amounts to `r round(100*getShareOfLoss(overlap,'fatalities',peoplesum),0)`% of all recorded fatalities and `r round(100*getShareOfLoss(overlap,'injuries',peoplesum),0)`% of all recorded injuries in the StormData file. 
 
+The list of top `r myn` most harmful types of events contains both "HEAT" and "EXCESSIVE HEAT". They are explained in sections 7.20 and 7.12 respectively of the [Storm Data documentation](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf), so there must be some good reason why they are treated separately.
 
+The rankings above include a column for only the last `r myy` years of data because it might be of interest to see how they change over time. If they do not, then maybe that is an indication that it is hopeless to try and tackle the worst kinds of event types, and disaster preparedness and relief resources might be better used on less severe but more tractable ones. Then again, if the rankings stay the same but the relative share of the damage done by the worst `r myn` types of events is decreasing, that is an indication of progress.
+
+The `r length(overlap)` types of events that show up in both top `r myn` lists above are responsible for `r round(100*getShareOfLoss(overlap,'fatalities',newLoss$fatalities),0)`% of fatalities and `r round(100*getShareOfLoss(overlap,'injuries',newLoss$injuries),0)`% of injuries in each top `r myn` list for data collected over the last `r myy` years only. This amounts to `r round(100*getShareOfLoss(overlap,'fatalities',peoplenew),0)`% of all recorded fatalities and `r round(100*getShareOfLoss(overlap,'injuries',peoplenew),0)`% of all recorded injuries in the last `r myy` years of the StormData file.
+
+So, the worst events for human health are about the same over time, and their share of the total damage does not seem to change much. The counts for the past `r myy` years seem to be disproportionately high. That may be accounted for either by population growth (more people in harm's way, so more people truly harmed) or improved data collection (fewer of the people truly harmed are missed by the counts).
+
+Any way you count them, tornadoes are the top threat to human health among all natural events according to StormData, by a wide margin.
+
+## Ranking of event types by economic damage
+
+I added crop and property damage together into a single measure of economic damage, because they are both dollar values rounded to thousands. By this measure, the top `r myn` most costly types of weather events are (in thousands of dollars):
+```{r econdmg}
+overlap <- econdmg$EVTYPE
+econdmg
+```
+
+The types of events ranked above are responsible for `r round(100*getShareOfLoss(overlap,'econdmg',peoplesum),0)`% of all recorded economic damage in the StormData file. That share is `r round(100*getShareOfLoss(overlap,'econdmg',peoplenew),0)`% if measured over the last `r myy` years only. Again the shares are similar because the last `r myy` years' worth of estimates are disproportionately large, reflecting either higher-value property in harm's way (accounted for by both inflation and true wealth creation) or better data collection. Tornadoes top the list again.
