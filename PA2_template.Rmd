@@ -364,3 +364,7 @@ In the same way that more people are in harm's way in more recent years as a nat
 The types of events ranked above are responsible for `r round(100*getShareOfLoss(econdmg$EVTYPE,'econdmg',peoplesum),0)`% of all recorded economic damage in the StormData file. That share is `r round(100*getShareOfLoss(econdmg$EVTYPE,'econdmg',peoplenew),0)`% if measured over the last `r myy` years only. 
 
 Tornadoes top the list again, but by a much narrower margin and they weren't always the worst thing: before the last `r myy` years, thunderstorm winds and flash floods both beat tornadoes at asset destruction.
+
+```{r sessioninfo}
+sessionInfo()
+```
